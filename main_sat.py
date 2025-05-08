@@ -6,7 +6,8 @@ from typing import List, Set, Dict
 import random
 from typing import List, Set
 
-
+class SolverTimeout(Exception):
+    pass
 
 def generate_random_cnf(num_vars: int, num_clauses: int, inclusion_prob: float = 0.5) -> List[Set[int]]:
     cnf = []
@@ -31,7 +32,12 @@ def get_variables(cnf: CNF) -> Set[int]:
     return set(abs(lit) for clause in cnf for lit in clause)
 
 #Brute Force Solver
-def solve_brute_force(cnf: CNF) -> bool:
+def solve_brute_force(cnf: CNF, start_time = None, time_limit = 60) -> bool:
+    if start_time is None:
+        start_time = time.time()
+
+    if time.time() - start_time > time_limit:
+        raise SolverTimeout("DPLL solver timed out")
     variables = list(get_variables(cnf))
     for values in itertools.product([False, True], repeat=len(variables)):
         assignment = dict(zip(variables, values))
@@ -47,7 +53,12 @@ def resolve(ci: Set[int], cj: Set[int], literal: int) -> Set[int]:
     return (ci - {literal}) | (cj - {-literal})
 
 #Resolution Solver
-def solve_resolution(cnf: List[Set[int]]) -> bool:
+def solve_resolution(cnf: List[Set[int]], start_time=None, time_limit=60) -> bool:
+    if start_time is None:
+        start_time = time.time()
+
+    if time.time() - start_time > time_limit:
+        raise SolverTimeout("DPLL solver timed out")
     clauses = set(frozenset(c) for c in cnf)
     new = set()
 
@@ -66,7 +77,12 @@ def solve_resolution(cnf: List[Set[int]]) -> bool:
         clauses |= new
 
 
-def dp_solver(cnf: CNF) -> bool:
+def dp_solver(cnf: CNF, start_time=None, time_limit=60) -> bool:
+    if start_time is None:
+        start_time = time.time()
+
+    if time.time() - start_time > time_limit:
+        raise SolverTimeout("DPLL solver timed out")
     cnf = [set(clause) for clause in cnf]
     while True:
         vars_in_cnf = set(abs(lit) for clause in cnf for lit in clause)
@@ -86,7 +102,12 @@ def dp_solver(cnf: CNF) -> bool:
         cnf.extend(new_clauses)
 
 #DPLL Solver
-def dpll(cnf: CNF, assignment: Dict[int, bool] = {}) -> bool:
+def dpll(cnf: CNF, assignment: Dict[int, bool] = {}, start_time = None, time_limit=60) -> bool:
+    if start_time is None:
+        start_time = time.time()
+
+    if time.time() - start_time > time_limit:
+        raise SolverTimeout("DPLL solver timed out")
     cnf = simplify(cnf, assignment)
     if any(len(clause) == 0 for clause in cnf):
         return False
@@ -153,10 +174,8 @@ def write_times_to_csv(filename: str, row: List):
 # --- Main Interface ---
 def run_all_methods(cnf: CNF, output_file: str = "sat_times.csv"):
     times = []
-    try:
 
-    
-    start = time.time()
+    """start = time.time()
     print("starting brute force")
     sat_bf = solve_brute_force(cnf)
     times.append(time.time() - start)
@@ -169,16 +188,52 @@ def run_all_methods(cnf: CNF, output_file: str = "sat_times.csv"):
     start = time.time()
     print("starting dp")
     dp_solver(cnf)
-    times.append(time.time() - start)
+    times.append(time.time() - start)"""
 
-    start = time.time()
-    print("starting dpll")
-    good = dpll(cnf)
-    times.append(time.time() - start)
+    # Brute Force
+    try:
+        print("starting brute force")
+        start = time.time()
+        sat_bf = solve_brute_force(cnf, start_time=start, time_limit=60)
+        times.append(f"{time.time() - start:.6f}")
+    except SolverTimeout:
+        print("Brute force timed out!")
+        times.append("TIMEOUT")
+        sat_bf = None
 
-    row = [len(get_variables(cnf)), "SAT" if good else "UNSAT"]
-    write_times_to_csv(output_file, row + [f"{t:.6f}" for t in times])
-    print(f"Done. CSV updated: {row + [f'{t:.6f}' for t in times]}")
+    # Resolution
+    try:
+        print("starting resolution")
+        start = time.time()
+        sat_res = solve_resolution(cnf, start_time=start, time_limit=60)
+        times.append(f"{time.time() - start:.6f}")
+    except SolverTimeout:
+        print("Resolution timed out!")
+        times.append("TIMEOUT")
+        sat_res = None
+
+    # Davis–Putnam
+    try:
+        print("starting dp")
+        start = time.time()
+        dp_solver(cnf, start_time=start, time_limit=60)
+        times.append(f"{time.time() - start:.6f}")
+    except SolverTimeout:
+        print("DP timed out!")
+        times.append("TIMEOUT")
+
+    try:
+        start = time.time()
+        result = dpll(cnf, start_time=start, time_limit=60)
+        elapsed = time.time() - start
+        times.append(f"{elapsed:.6f}")
+    except SolverTimeout:
+        print("DPLL timed out!")
+        times.append("TIMEOUT")
+
+    row = [len(get_variables(cnf)), "SAT" if result else "UNSAT"]
+    write_times_to_csv(output_file, row + [f"{t:.6f}" if isinstance(t, float) else t for t in times])
+    print(f"Done. CSV updated: {row + [f"{t:.6f}" if isinstance(t, float) else t for t in times]}")
 
 
 # Example CNF: (x1 ∨ ¬x3) ∧ (¬x1 ∨ x2) ∧ (x3)
@@ -187,7 +242,7 @@ if __name__ == "__main__":
 
     while True:
         num_vars = 40
-        num_clauses = 10
+        num_clauses = 15
         inclusion_prob = 0.1 # tune this to taste
 
         cnf = generate_random_cnf(num_vars, num_clauses, inclusion_prob)
